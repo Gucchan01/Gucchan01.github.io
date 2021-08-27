@@ -1,0 +1,205 @@
+<!-- test006 映像+音声+テキストを「複数人」で 004から-->
+<!-- 23行目 mute を外したことで音声聞こえるようになった -->
+<!-- roomで複数 -->
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script type="text/javascript" src="https://code.jquery.com/jquery-1.11.3.min.js"></script>
+  <script src="https://cdn.webrtc.ecl.ntt.com/skyway-4.4.1.js"></script>
+  <title>SkyWay007</title>
+  <link rel="stylesheet" href="../_shared/style.css">
+</head>
+<body>
+  <h1>Video&Textchat</h1>
+  <br>
+  YourID↓↓↓↓↓↓
+  <p id="my-id"></p>              <!-- my-idに自分のid入る -->
+  <div class="room">
+  <div>
+    <video id="my-video" width="400px" autoplay muted playsinline></video>
+  
+  　<!-- room nameにユニークなルーム名入る -->
+    <input type="text" placeholder="Room Name" id="js-room-id">
+    <button id="make-call">発信</button>
+  </div>
+  <!--<video id="their-video" width="400px" autoplay playsinline></video>-->
+  
+    <div class="remote-streams" id="js-remote-streams"></div>
+  </div>
+  <hr>
+  <div>
+    <input type="text" placeholder="Chat Message" id="message">
+    <button id="send">Sendcomment</button>
+    <button id="js-leave-trigger">leave</button>
+  </div>
+  </div>
+  <div id="messages">Chat Space</div>
+  <script>       //scriptはbody要素の最下部にかく
+
+
+//---------------
+
+const joinTrigger = document.getElementById('make-call'); //js-join-trigger
+const leaveTrigger = document.getElementById('js-leave-trigger');
+const remoteVideos = document.getElementById('js-remote-streams');//js-remote-streams
+const roomId = document.getElementById('js-room-id');
+const localText = document.getElementById('message');//js-local-text
+const sendTrigger = document.getElementById('send');//js-send-trigger
+const jjmessages = document.getElementById('messages');
+
+
+
+
+
+let localStream;
+
+// [navigator]はブラウザの情報取得　mediastreamカメラ映像取得 getUserMediaはブラウザ標準API
+navigator.mediaDevices.getUserMedia({video: true, audio: true})
+    .then( stream => {
+    // [then]成功時にvideo要素にカメラ映像をセットし、再生
+    const videoElm = document.getElementById('my-video');
+    videoElm.srcObject = stream;
+    videoElm.play();
+    // 着信時に相手にカメラ映像を返せるように、グローバル変数に保存しておく
+    localStream = stream;
+
+    // メッセージ受信イベントの設定            //////////追加
+    localStream.on("data", onRecvMessage);
+  }).catch( error => {
+    // [catch]もし失敗時にはエラーログを出力
+    console.error('mediaDevice.getUserMedia() error:', error);
+    return;
+  });
+
+  const peer = new Peer({
+    key: '0aa00cb2-adaf-44c9-9112-8405c5efa0d9', 
+    debug: 3
+    });
+
+    
+    $("#messages").append($("<p>").text("start1212").css("font-weight", "bold"));
+    
+
+    //Joinクリックしたとき
+  joinTrigger.addEventListener('click', () => {
+    
+    if (!peer.open) {
+      return;
+    }
+
+
+    const room = peer.joinRoom(roomId.value, {
+      mode: "sfu",  //getRoomModeByHash()
+      stream: localStream,
+    });
+
+    $("#messages").append($("<p>").text("start12").css("font-weight", "bold"));
+    
+    //上のシグナリングサーバ接続確立したときPeerID取得　自分のidを表示
+    room.once('open', () => {
+	    document.getElementById('my-id').textContent = peer.id;
+      //jjmessages.textContent += '=== You joined ===\n';
+      $("#messages").append($("<p>").text("=== You joined ===").css("font-weight", "bold"));
+    
+	  });
+
+    //peerJoin ルームに新しいPeerが参加したとき発生
+    room.on('peerJoin', peerId => {
+      //messages.textContent += `=== ${peerId} joined ===\n`;
+      $("#messages").append($("<p>").text(peerId + ": さんと接続開始").css("font-weight", "bold"));
+    
+    });
+
+    // Render remote stream for new peer join in the room
+    //ルームに Join している他のユーザのストリームを受信した時に発生
+    //[MediaStream]
+    room.on('stream', async stream => {
+      
+      const newVideo = document.createElement('video');
+      $("#messages").append($("<p>").text("stream受信2").css("font-weight", "bold"));
+    
+      //srcObject メディアソースを提供するオブジェクトを設定または取得します
+      newVideo.srcObject = stream;  
+      newVideo.playsInline = true;
+      // mark peerId to find it later at peerLeave event
+      //setAttribute　指定の要素に新しい属性を追加
+      newVideo.setAttribute('data-peer-id', stream.peerId);
+      remoteVideos.append(newVideo);
+      await newVideo.play().catch(console.error);
+    });
+
+    $("#messages").append($("<p>").text("next").css("font-weight", "bold"));
+    
+    //他のユーザーから送信されたデータを受信した時に発生
+    room.on('data', ({ data, src }) => {
+      // Show a message sent to the room and who sent
+      $("#messages").append($("<p>").text(src + ": " + data).css("font-weight", "bold"));
+    
+      //jjmessages.textContent += `${src}: ${data}\n`;
+    });
+
+    //peerLeave 新規にPeerがルームを退出したとき
+    // for closing room members
+    room.on('peerLeave', peerId => {
+      const remoteVideo = remoteVideos.querySelector(
+        `[data-peer-id="${peerId}"]`
+      );
+      remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+      remoteVideo.srcObject = null;
+      remoteVideo.remove();
+
+      //jjmessages.textContent += `=== ${peerId} left ===\n`;
+      $("#messages").append($("<p>").text("=== "+ peerId +"left ===").css("font-weight", "bold"));
+    
+    });
+
+    //現在のルームから自分が退出したとき
+    // for closing myself
+    room.once('close', () => {
+      sendTrigger.removeEventListener('click', onClickSend);
+      jjmessages.textContent += '== You left ===\n';
+      Array.from(remoteVideos.children).forEach(remoteVideo => {
+        remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+        remoteVideo.srcObject = null;
+        remoteVideo.remove();
+      });
+    });
+
+    sendTrigger.addEventListener('click', onClickSend);
+    leaveTrigger.addEventListener('click', () => room.close(), { once: true });
+
+    function onClickSend() {
+      // Send message to all of the peers in the room via websocket
+      //データ送信
+      room.send(localText.value);
+      //textContent テキスト情報を取得
+      $("#messages").append($("<p>").text(localText.value).css("font-weight", "bold"));
+      
+      //jjmessages.textContent += `${peer.id}: ${localText.value}\n`;
+      localText.value = '';
+    }
+
+
+
+
+  });
+
+
+  peer.on('error', console.error);
+
+
+
+  
+
+
+
+   </script>
+   <p id="my-id"></p>
+</body>
+</html>
+
+
+
